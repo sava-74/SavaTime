@@ -1,7 +1,6 @@
-/*brief  
-*Программный таймер на системном таймере millis() для Arduino
-*Илья С sava-74@inbox.ru 24.09.2024
-*Код взят из блоков программы FLProg.
+/*
+Программный таймер SavaTime (Logic & Function Blocks)
+Версия: 06.12.2025
 */
 
 #ifndef SavaTime_h
@@ -11,222 +10,237 @@
 class SavaTime
 {
 public:
-    SavaTime() : _flagOnTime(false), _startTime(0), _flagFix(false), _outMulti(false), _tofOutput(false), _tonOutput(false),_flagStTon(false) {}
+    // Конструктор
+    SavaTime() : _flagOnTime(false), _startTime(0), _outMulti(false), _trigLock(false) {}
 
-	void TstTON() //включаем TON
-	{
-		_flagOnTime = true;
-		if(!_flagStTon)
-		{	
-		_startTime = millis();  // Сбрасываем время начала отсчета
-		_flagStTon = true;
-		}
-	}
+    // =========================================================================
+    // УПРАВЛЕНИЕ СОСТОЯНИЕМ
+    // =========================================================================
 
-   // Сброс и запуск таймера (вызывается при нажатии кнопки)
-    void TRes()
+    // Полный сброс таймера.
+    // Используйте, если таймер вызывается не в каждом цикле (например, в switch-case),
+    // чтобы сбросить "зависшее" состояние.
+    void Reset()
     {
+        _flagOnTime = false;
+        _trigLock = false; // Сброс блокировки одиночного импульса
+        _outMulti = false; // Сброс выхода мультивибратора
+    }
+
+    // Ручной запуск (обычно не нужен, так как функции управляются аргументами)
+    void Start() {    
         _flagOnTime = true;
-        _startTime = millis();  // Сбрасываем время начала отсчета
-        _tonOutput = false;     // Сбрасываем выходной сигнал TON
+        _startTime = millis(); 
+    }
+	
+    void StartMicros() {
+        _flagOnTime = true;
+        _startTime = micros();
     }
 
-    // Выключить таймер (вызывается при отпускании кнопки)
-    void TStop()
+    // =========================================================================
+    // ОДНОВИБРАТОР (Delayed Pulse)
+    // =========================================================================
+    /* 
+      Выдает ОДИН импульс через заданное время после появления input.
+      input = 0: Сброс ("взвод курка").
+      input = 1: Старт отсчета -> Импульс -> Ожидание сброса.
+    */
+    bool Time(uint32_t period, bool input = true)
     {
-        _flagOnTime = false;  // Останавливаем таймер
-        _tonOutput = false;   // Сбрасываем выходной сигнал TON
-		_flagStTon = false;
-    }
-
-    // Одновибратор с указанием периода в мс (требует явного запуска через TRes)
-    bool TimeML(uint32_t period)
-    {
-        if (!_flagOnTime) {
-            return false;  // Если таймер не запущен, возвращаем false
+        if (!input) {
+            _trigLock = false;   // Снимаем блокировку
+            _flagOnTime = false; // Сбрасываем таймер
+            return false;
         }
 
-        // Проверяем, истек ли период
+        // Если это передний фронт (нажали, и еще не блокировано)
+        if (!_trigLock) {
+            _trigLock = true;    // Блокируем повторный запуск
+            _flagOnTime = true;  // Запускаем таймер
+            _startTime = millis();
+        }
+
+        if (!_flagOnTime) return false; // Таймер уже отработал или не запущен
+
+        if (getElapsedTime() >= period) {
+            _flagOnTime = false; // Импульс выдан, выключаемся
+            return true;
+        }
+
+        return false;
+    }
+
+    // То же самое для микросекунд
+    bool TimeMicros(uint32_t period, bool input = true)
+    {
+        if (!input) {
+            _trigLock = false;
+            _flagOnTime = false;
+            return false;
+        }
+
+        if (!_trigLock) {
+            _trigLock = true;
+            _flagOnTime = true;
+            _startTime = micros();
+        }
+
+        if (!_flagOnTime) return false;
+
+        if (getElapsedTimeMicros() >= period) {
+            _flagOnTime = false;
+            return true;
+        }
+        return false;
+    }
+
+    // =========================================================================
+    // ГЕНЕРАТОРЫ (С управляющим входом enable)
+    // =========================================================================
+
+    // Генератор импульсов (мс). 
+    // enable = true: Работает циклически.
+    // enable = false: Сбрасывается.
+    bool Gen(uint32_t period, bool enable = true)
+    {
+        if (!enable) {
+            _flagOnTime = false;
+            return false;
+        }
+
+        if (!_flagOnTime) {
+            _flagOnTime = true;
+            _startTime = millis();
+        }
+
         if (getElapsedTime() >= period)
         {
-            _flagOnTime = false;  // Останавливаем таймер
-            return true;          // Возвращаем true, если период истек
+            _startTime = millis(); 
+            return true;
         }
-
-        return false;  // Возвращаем false, если период еще не истек
+        return false;
     }
 
-    // Генерация импульсов с указанием периода в мс (автозапуск)
-    bool GenML(uint32_t period)
+    // Симметричный мультивибратор (мигалка).
+    bool Multi(uint32_t period, bool enable = true)
     {
-        if (!_flagOnTime) {
-            TRes();  // Автоматически запускаем таймер при первом вызове
+        if (!enable) {
+            _flagOnTime = false;
+            _outMulti = false;
+            return false;
         }
 
-        if (getElapsedTime() >= period)
-        {
-            _startTime = millis();  // Обновляем время начала отсчета
-            return true;            // Возвращаем true, если период истек
-        }
-
-        return false;  // Возвращаем false, если период еще не истек
-    }
-
-    // Мультивибратор с указанием периода в мс (автозапуск)
-    bool Multi(uint32_t period)
-    {
         if (!_flagOnTime) {
-            TRes();  // Автоматически запускаем таймер при первом вызове
-			_outMulti = false;
-		}
+            _flagOnTime = true;
+            _startTime = millis();
+            _outMulti = false;
+        }
 
         if (getElapsedTime() >= period)
         {
             _startTime = millis();
-            _outMulti = !_outMulti;  // Переключаем состояние
+            _outMulti = !_outMulti;
         }
-
         return _outMulti;
     }
 
-    // Несимметричный мультивибратор (автозапуск)
-    bool AsMulti(uint32_t highPeriod, uint32_t lowPeriod)
+    // Асимметричный мультивибратор.
+    bool AsMulti(uint32_t highPeriod, uint32_t lowPeriod, bool enable = true)
     {
+        if (!enable) {
+            _flagOnTime = false;
+            _outMulti = false;
+            return false;
+        }
+
         if (!_flagOnTime) {
-            TRes();  // Автоматически запускаем таймер при первом вызове
-			_outMulti = false;
-		}
+            _flagOnTime = true;
+            _startTime = millis();
+            _outMulti = false;
+        }
 
         uint32_t elapsedTime = getElapsedTime();
 
-        // Проверка, истек ли период для текущего состояния
         if (_outMulti && elapsedTime >= highPeriod)
         {
-            _startTime = millis();  // Обновляем время начала отсчета
-            _outMulti = false;      // Переключаем состояние на LOW
+            _startTime = millis();
+            _outMulti = false;
         }
         else if (!_outMulti && elapsedTime >= lowPeriod)
         {
-            _startTime = millis();  // Обновляем время начала отсчета
-            _outMulti = true;       // Переключаем состояние на HIGH
+            _startTime = millis();
+            _outMulti = true;
         }
-
-        return _outMulti;  // Возвращаем текущее состояние
+        return _outMulti;
     }
 
-    // Задержка на отключение (TOF) (требует явного запуска через TRes)
-    bool TOF(uint32_t period)
+    // =========================================================================
+    // АВТОМАТИКА (TON / TOF)
+    // =========================================================================
+
+    // Задержка ВКЛЮЧЕНИЯ (TON)
+    // input = 1: Таймер тикает. Время вышло -> true (удержание).
+    // input = 0: Мгновенный сброс в false.
+    bool TON(uint32_t period, bool input)
     {
+        if (!input) {
+            _flagOnTime = false;
+            return false;
+        }
+
         if (!_flagOnTime) {
-            return false;  // Если таймер не запущен, возвращаем false
+            _flagOnTime = true;
+            _startTime = millis();
+            return false;
         }
 
-        // Проверяем, истек ли период с момента последнего вызова TRes
-        if (getElapsedTime() >= period)
-        {
-            return false;  // Возвращаем false, если период истек
-        }
+        if (getElapsedTime() >= period) return true;
 
-        return true;  // Возвращаем true, если период еще не истек
+        return false;
     }
 
-    // Оставшееся время для TOF (обратный отсчет)
+    // Задержка ОТКЛЮЧЕНИЯ (TOF) с перезапуском
+    // input = 1: Выход true, таймер постоянно перезаряжается.
+    // input = 0: Выход true, идет отсчет времени. Время вышло -> false.
+    bool TOF(uint32_t period, bool input)
+    {
+        if (input) {
+            _flagOnTime = true;
+            _startTime = millis(); // Рестарт (удержание заряда)
+            return true;
+        }
+
+        if (!_flagOnTime) return false; // Таймер уже разрядился
+
+        if (getElapsedTime() >= period) {
+            _flagOnTime = false; // Время вышло
+            return false;
+        }
+        return true; // Держим питание
+    }
+
+    // Утилита: Сколько времени осталось (для TOF)
     uint32_t TOF_Remaining(uint32_t period)
     {
-        if (!_flagOnTime) {
-            return 0;  // Если таймер не запущен, возвращаем 0
-        }
-
+        if (!_flagOnTime) return 0;
         uint32_t elapsedTime = getElapsedTime();
-
-        // Если период истек, возвращаем 0
-        if (elapsedTime >= period)
-        {
-            return 0;
-        }
-
-        // Возвращаем оставшееся время
+        if (elapsedTime >= period) return 0;
         return period - elapsedTime;
     }
 
-    // Задержка на включение (TON) (требует явного запуска через TRes)
-    bool TON(uint32_t period)
-    {
-        if (!_flagOnTime) {//Serial.println("_flagOnTime сработал");
-            return false;  // Если таймер не запущен, возвращаем false
-        }
-
-        // Проверяем, истек ли период с момента последнего вызова TRes
-        //Serial.print("getElapsedTime() = ");Serial.println(getElapsedTime());
-		if (getElapsedTime() >= period)
-        {
-            _tonOutput = true;  // Устанавливаем выходной сигнал в true
-			//Serial.println("getElapsedTime сработал");
-        }
-
-        return _tonOutput;  // Возвращаем текущее состояние выхода
-    }
-
-    // Запуск таймера с указанием периода в микросекундах (требует явного запуска через TRes)
-    bool TimeMicros(uint32_t period)
-    {
-        if (!_flagOnTime) {
-            return false;  // Если таймер не запущен, возвращаем false
-        }
-
-        if (!_flagFix)
-        {
-            _startTime = micros();
-        }
-
-        return checkElapsedTimeMicros(period);
-    }
-
 private:
-    bool _flagOnTime;        // Флаг запуска таймера
-    uint32_t _startTime;     // Время начала отсчета
-    bool _flagFix;           // Флаг фиксации таймера
-    bool _outMulti;          // Выход мультивибратора
-    bool _tofOutput;         // Выход TOF
-    bool _tonOutput;         // Выход TON
-	bool _flagStTon;		 // Запуск TON
-    // Получение истекшего времени с учетом переполнения (для millis())
-    uint32_t getElapsedTime()
-    {
-        uint32_t currentTime = millis();
-		//Serial.print("currentTime = ");Serial.print(currentTime);Serial.print(" - ");Serial.print(_startTime);Serial.print(" = ");Serial.println(currentTime - _startTime);
-        if (currentTime >= _startTime)
-        {
-            return currentTime - _startTime;
-        }
-        else
-        {
-            return (0xFFFFFFFF - _startTime) + currentTime + 1;
-        }
+    bool _flagOnTime;        // Флаг активности
+    uint32_t _startTime;     // Время старта
+    bool _outMulti;          // Выход генератора
+    bool _trigLock;          // Блокировка одиночного импульса
+
+    // Оптимизированный расчет времени (авто-переполнение uint32_t)
+    uint32_t getElapsedTime(){
+        return millis() - _startTime;
     }
-
-    // Получение истекшего времени с учетом переполнения (для micros())
-    uint32_t getElapsedTimeMicros()
-    {
-        uint32_t currentTime = micros();
-		
-        if (currentTime >= _startTime)
-        {
-            return currentTime - _startTime;
-        }
-        else
-        {
-            return (0xFFFFFFFF - _startTime) + currentTime + 1;
-        }
-    }
-
-    // Проверка истекшего времени для micros()
-    bool checkElapsedTimeMicros(uint32_t period)
-    {
-        if (!_flagOnTime) return false;  // Таймер остановлен
-
-        uint32_t elapsedTime = getElapsedTimeMicros();
-        return (elapsedTime >= period);
+    uint32_t getElapsedTimeMicros(){
+        return micros() - _startTime;
     }
 };
 
