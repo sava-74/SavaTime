@@ -1,0 +1,25 @@
+#######################################
+# Syntax Coloring Map for SavaTime
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1) - Class Name
+#######################################
+
+SavaTime	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+Reset	KEYWORD2
+Start	KEYWORD2
+StartMicros	KEYWORD2
+Time	KEYWORD2
+TimeMicros	KEYWORD2
+Gen	KEYWORD2
+Multi	KEYWORD2
+AsMulti	KEYWORD2
+TON	KEYWORD2
+TOF	KEYWORD2
+TOF_Remaining	KEYWORD2
