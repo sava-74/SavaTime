@@ -1,7 +1,11 @@
 /*
-Программный таймер SavaTime (Logic & Function Blocks)
-Версия: 06.12.2025
-*/
+ * SavaTime Library
+ * Программный таймер на системных функциях millis()/micros()
+ * Реализует логику промышленных функциональных блоков (TON, TOF, Pulse, Gen).
+ * 
+ * Версия: 1.0.1 (Release)
+ * Автор: SavaLab
+ */
 
 #ifndef SavaTime_h
 #define SavaTime_h
@@ -10,68 +14,68 @@
 class SavaTime
 {
 public:
-    // Конструктор
     SavaTime() : _flagOnTime(false), _startTime(0), _outMulti(false), _trigLock(false) {}
 
     // =========================================================================
     // УПРАВЛЕНИЕ СОСТОЯНИЕМ
     // =========================================================================
 
-    // Полный сброс таймера.
-    // Используйте, если таймер вызывается не в каждом цикле (например, в switch-case),
-    // чтобы сбросить "зависшее" состояние.
+    /**
+     * @brief ПОЛНЫЙ СБРОС (RESET)
+     * Принудительно обнуляет состояние таймера.
+     * Используйте эту функцию, если логика программы прерывалась (например, в switch-case),
+     * чтобы таймер не сработал мгновенно из-за старого времени.
+     */
     void Reset()
     {
         _flagOnTime = false;
-        _trigLock = false; // Сброс блокировки одиночного импульса
-        _outMulti = false; // Сброс выхода мультивибратора
-    }
-
-    // Ручной запуск (обычно не нужен, так как функции управляются аргументами)
-    void Start() {    
-        _flagOnTime = true;
-        _startTime = millis(); 
-    }
-	
-    void StartMicros() {
-        _flagOnTime = true;
-        _startTime = micros();
+        _trigLock = false; 
+        _outMulti = false; 
     }
 
     // =========================================================================
-    // ОДНОВИБРАТОР (Delayed Pulse)
+    // ОДНОВИБРАТОР (ИМПУЛЬС)
     // =========================================================================
-    /* 
-      Выдает ОДИН импульс через заданное время после появления input.
-      input = 0: Сброс ("взвод курка").
-      input = 1: Старт отсчета -> Импульс -> Ожидание сброса.
-    */
+
+    /**
+     * @brief ОДНОВИБРАТОР (Одиночный импульс / Delayed Pulse)
+     * Выдает true ОДИН раз через заданное время после появления сигнала.
+     * Повторный запуск возможен только после сброса input в 0.
+     * 
+     * @param period Время задержки перед импульсом (мс).
+     * @param input Управляющий сигнал. true -> Старт отсчета. false -> Сброс ("взвод курка").
+     * @return true - импульс выдан (один цикл), false - ожидание или сброс.
+     */
     bool Time(uint32_t period, bool input = true)
     {
         if (!input) {
-            _trigLock = false;   // Снимаем блокировку
-            _flagOnTime = false; // Сбрасываем таймер
+            _trigLock = false;   
+            _flagOnTime = false; 
             return false;
         }
 
-        // Если это передний фронт (нажали, и еще не блокировано)
         if (!_trigLock) {
-            _trigLock = true;    // Блокируем повторный запуск
-            _flagOnTime = true;  // Запускаем таймер
+            _trigLock = true;    
+            _flagOnTime = true;  
             _startTime = millis();
         }
 
-        if (!_flagOnTime) return false; // Таймер уже отработал или не запущен
+        if (!_flagOnTime) return false;
 
         if (getElapsedTime() >= period) {
-            _flagOnTime = false; // Импульс выдан, выключаемся
+            _flagOnTime = false; 
             return true;
         }
-
         return false;
     }
 
-    // То же самое для микросекунд
+    /**
+     * @brief ОДНОВИБРАТОР (Микросекунды)
+     * Аналог функции Time, но работает с высокой точностью (micros).
+     * 
+     * @param period Время задержки (мкс).
+     * @param input Управляющий сигнал.
+     */
     bool TimeMicros(uint32_t period, bool input = true)
     {
         if (!input) {
@@ -96,12 +100,17 @@ public:
     }
 
     // =========================================================================
-    // ГЕНЕРАТОРЫ (С управляющим входом enable)
+    // ГЕНЕРАТОРЫ (ЦИКЛИЧЕСКИЕ ТАЙМЕРЫ)
     // =========================================================================
 
-    // Генератор импульсов (мс). 
-    // enable = true: Работает циклически.
-    // enable = false: Сбрасывается.
+    /**
+     * @brief ГЕНЕРАТОР СОБЫТИЙ (Generator)
+     * Выдает короткий импульс (true) каждые N миллисекунд.
+     * 
+     * @param period Период срабатывания (мс).
+     * @param enable Разрешение работы. true -> Работает. false -> Сброс.
+     * @return true - наступило событие (один цикл).
+     */
     bool Gen(uint32_t period, bool enable = true)
     {
         if (!enable) {
@@ -109,10 +118,7 @@ public:
             return false;
         }
 
-        if (!_flagOnTime) {
-            _flagOnTime = true;
-            _startTime = millis();
-        }
+        if (!_flagOnTime) Start();
 
         if (getElapsedTime() >= period)
         {
@@ -122,7 +128,14 @@ public:
         return false;
     }
 
-    // Симметричный мультивибратор (мигалка).
+    /**
+     * @brief МУЛЬТИВИБРАТОР (Blinker / Multi)
+     * Симметричный генератор прямоугольных импульсов ("Мигалка").
+     * 
+     * @param period Время полупериода (мс). Например, 500 = 500мс ВКЛ, 500мс ВЫКЛ.
+     * @param enable Разрешение работы. true -> Мигает. false -> Выключен (0).
+     * @return Текущее состояние выхода (true/false).
+     */
     bool Multi(uint32_t period, bool enable = true)
     {
         if (!enable) {
@@ -132,8 +145,7 @@ public:
         }
 
         if (!_flagOnTime) {
-            _flagOnTime = true;
-            _startTime = millis();
+            Start();
             _outMulti = false;
         }
 
@@ -145,7 +157,15 @@ public:
         return _outMulti;
     }
 
-    // Асимметричный мультивибратор.
+    /**
+     * @brief АСИММЕТРИЧНЫЙ МУЛЬТИВИБРАТОР (Asymmetric Generator)
+     * Генератор с разным временем включенного и выключенного состояния.
+     * 
+     * @param highPeriod Время во включенном состоянии (мс).
+     * @param lowPeriod Время в выключенном состоянии (мс).
+     * @param enable Разрешение работы.
+     * @return Текущее состояние выхода.
+     */
     bool AsMulti(uint32_t highPeriod, uint32_t lowPeriod, bool enable = true)
     {
         if (!enable) {
@@ -155,8 +175,7 @@ public:
         }
 
         if (!_flagOnTime) {
-            _flagOnTime = true;
-            _startTime = millis();
+            Start();
             _outMulti = false;
         }
 
@@ -179,9 +198,14 @@ public:
     // АВТОМАТИКА (TON / TOF)
     // =========================================================================
 
-    // Задержка ВКЛЮЧЕНИЯ (TON)
-    // input = 1: Таймер тикает. Время вышло -> true (удержание).
-    // input = 0: Мгновенный сброс в false.
+    /**
+     * @brief ЗАДЕРЖКА ВКЛЮЧЕНИЯ (TON / On-Delay)
+     * Выход становится активным, только если вход удерживается в течение заданного времени.
+     * 
+     * @param period Время задержки (мс).
+     * @param input Входной сигнал. true -> Таймер считает. false -> Мгновенный сброс.
+     * @return true - время вышло (выход активен), false - ожидание или сброс.
+     */
     bool TON(uint32_t period, bool input)
     {
         if (!input) {
@@ -200,27 +224,39 @@ public:
         return false;
     }
 
-    // Задержка ОТКЛЮЧЕНИЯ (TOF) с перезапуском
-    // input = 1: Выход true, таймер постоянно перезаряжается.
-    // input = 0: Выход true, идет отсчет времени. Время вышло -> false.
+    /**
+     * @brief ЗАДЕРЖКА ОТКЛЮЧЕНИЯ (TOF / Off-Delay)
+     * Удерживает выход активным в течение заданного времени после пропадания сигнала.
+     * Если сигнал появляется снова, таймер перезапускается (удержание продлевается).
+     * 
+     * @param period Время удержания (мс).
+     * @param input Входной сигнал. true -> Выход активен (таймер заряжен). false -> Обратный отсчет.
+     * @return true - выход активен. false - время вышло.
+     */
     bool TOF(uint32_t period, bool input)
     {
         if (input) {
             _flagOnTime = true;
-            _startTime = millis(); // Рестарт (удержание заряда)
+            _startTime = millis(); 
             return true;
         }
 
-        if (!_flagOnTime) return false; // Таймер уже разрядился
+        if (!_flagOnTime) return false; 
 
         if (getElapsedTime() >= period) {
-            _flagOnTime = false; // Время вышло
+            _flagOnTime = false; 
             return false;
         }
-        return true; // Держим питание
+        return true; 
     }
 
-    // Утилита: Сколько времени осталось (для TOF)
+    /**
+     * @brief ОСТАТОК ВРЕМЕНИ (TOF Remaining)
+     * Возвращает оставшееся время удержания для таймера TOF.
+     * 
+     * @param period Тот же период, что задан в функции TOF (мс).
+     * @return Количество миллисекунд до отключения. 0 - если таймер не активен.
+     */
     uint32_t TOF_Remaining(uint32_t period)
     {
         if (!_flagOnTime) return 0;
@@ -230,12 +266,22 @@ public:
     }
 
 private:
-    bool _flagOnTime;        // Флаг активности
-    uint32_t _startTime;     // Время старта
-    bool _outMulti;          // Выход генератора
-    bool _trigLock;          // Блокировка одиночного импульса
+    bool _flagOnTime;        
+    uint32_t _startTime;     
+    bool _outMulti;          
+    bool _trigLock;          
 
-    // Оптимизированный расчет времени (авто-переполнение uint32_t)
+    // Внутренний запуск (теперь недоступен пользователю напрямую)
+    void Start() {    
+        _flagOnTime = true;
+        _startTime = millis(); 
+    }
+	
+    void StartMicros() {
+        _flagOnTime = true;
+        _startTime = micros();
+    }
+
     uint32_t getElapsedTime(){
         return millis() - _startTime;
     }
